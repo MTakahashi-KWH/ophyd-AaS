@@ -33,8 +33,11 @@ def generate_endpoints(
     base_path: Path | None = None,
 ) -> dict[str, str]:
     # Build core protocol endpoints only for MVP: describe/read/put.
-    structure = device.instance.describe()
     base_path = Path(device.alias) if base_path is None else base_path
+    structure = device.instance.describe()
+
+    def get_handler(method):
+        return lambda: method()
 
     def make_put_handler(method, struct: Any):
         def put_handler(payload: dict[str, Any] = Body(...)):
@@ -51,6 +54,26 @@ def generate_endpoints(
             return method(value)
 
         return put_handler
+
+    def register_nested_get_endpoints(obj: Any, path: Path) -> None:
+        for component_name in getattr(obj, "component_names", ()):
+            child = getattr(obj, component_name, None)
+            if child is None:
+                continue
+
+            child_path = path / component_name
+            if hasattr(child, "describe"):
+                describe_path = _route_path(child_path, "describe")
+                service.add_api_route(describe_path, get_handler(child.describe), methods=["GET"])
+                calls[describe_path] = "GET"
+
+            if hasattr(child, "read"):
+                read_path = _route_path(child_path, "read")
+                service.add_api_route(read_path, get_handler(child.read), methods=["GET"])
+                calls[read_path] = "GET"
+
+            if getattr(child, "component_names", ()):
+                register_nested_get_endpoints(child, child_path)
 
     # Future path for full ophyd surface generation:
     #
@@ -72,18 +95,19 @@ def generate_endpoints(
     #     else:
     #         service.add_api_route(str(path), lambda: method(), methods=["GET"])
     #
-    # The current MVP intentionally keeps only top-level endpoints registered while
-    # preserving the traversal shape above as the contract for nested Device/Signal
-    # expansion in a later phase.
+    # Nested read/describe registration is enabled below for MVP structure, while
+    # nested put/trigger/configure are still intentionally deferred.
 
     calls: dict[str, str] = {}
     describe_path = _route_path(base_path, "describe")
-    service.add_api_route(describe_path, lambda: device.instance.describe(), methods=["GET"])
+    service.add_api_route(describe_path, get_handler(device.instance.describe), methods=["GET"])
     calls[describe_path] = "GET"
 
     read_path = _route_path(base_path, "read")
-    service.add_api_route(read_path, lambda: device.instance.read(), methods=["GET"])
+    service.add_api_route(read_path, get_handler(device.instance.read), methods=["GET"])
     calls[read_path] = "GET"
+
+    register_nested_get_endpoints(device.instance, base_path)
 
     info_path = _route_path(base_path, "info")
     service.add_api_route(
