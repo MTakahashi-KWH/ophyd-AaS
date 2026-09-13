@@ -1,41 +1,30 @@
-
-from collections.abc import Callable, Hashable
-from typing import Annotated
+from collections.abc import Callable
+from dataclasses import dataclass
+from typing import Annotated, Any
 
 import yaml
-
-from fastapi import Depends, FastAPI, HTTPException, status
-from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
+from fastapi import Header, HTTPException
 from pydantic import BaseModel
-from dataclasses import dataclass
 
 
 class AuthConfig(BaseModel):
-    secrets: str
-    even_more_secrets: str
-    actually_secret_secrets: str
-    hashy: Hashable
+    admin_token: str
+
 
 @dataclass
 class AuthUnit:
-    dependent: OAuth2PasswordBearer
-    validator: Callable
+    admin_token: str
+    require_admin: Callable[..., Any]
 
 
-def auth(service, config_path):
-
-    security = OAuth2PasswordBearer(tokenUrl="token")
-
+def auth(config_path):
     with open(config_path) as file:
-        auth_config = AuthConfig(yaml.safe_load(file))
+        raw = yaml.safe_load(file) or {}
 
-    @service.post("/token")
-    async def login(form_data: Annotated[OAuth2PasswordRequestForm, Depends()]):
+    auth_config = AuthConfig.model_validate(raw)
 
-        return {"access_token": ..., "token_type": "bearer"}
+    async def require_admin(x_admin_token: Annotated[str | None, Header(alias="X-Admin-Token")] = None):
+        if x_admin_token != auth_config.admin_token:
+            raise HTTPException(status_code=401, detail="Invalid or missing admin token")
 
-    return ...
-
-
-def generate_managment_endpoints(service,auth):
-    ...
+    return AuthUnit(admin_token=auth_config.admin_token, require_admin=require_admin)
