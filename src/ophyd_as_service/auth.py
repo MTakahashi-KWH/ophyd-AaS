@@ -18,6 +18,7 @@ class AuthUnit:
 
 
 def auth(config_path):
+    # this is very open ended and i have left this so it can be improved with DI/ composition
     with open(config_path) as file:
         raw = yaml.safe_load(file) or {}
 

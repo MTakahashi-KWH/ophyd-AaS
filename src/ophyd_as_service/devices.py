@@ -60,9 +60,7 @@ def _create_device_descriptor(raw_descriptor: Any) -> DeviceDescriptor:
             meta_structure=raw_descriptor.get("meta_structure"),
         )
 
-    if isinstance(raw_descriptor, Device) or (
-        isinstance(raw_descriptor, type) and issubclass(raw_descriptor, Device)
-    ):
+    if issubclass(raw_descriptor, Device):
         return DeviceDescriptor(object=raw_descriptor)
 
     raise ValueError(f"Unsupported device descriptor type: {type(raw_descriptor)!r}")

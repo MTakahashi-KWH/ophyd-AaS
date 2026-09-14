@@ -15,7 +15,7 @@ class DeploymentConfig(BaseModel):
     library: str
     device_config: str
     admin_token: str
-    single_process: bool = True
+    single_process: bool| None = True
     host: str = "0.0.0.0"
     port: int = 8000
 
@@ -132,6 +132,7 @@ def build_service_from_deployment_config(
 
 
 def deploy():
+    #this is core function of this framwork with it being the entrance from CLI
     parser = argparse.ArgumentParser()
     parser.add_argument("--deployment-config", type=str, required=True)
     parser.add_argument(
@@ -140,28 +141,14 @@ def deploy():
         default=None,
         help="Override deployment-config single_process=true",
     )
-    parser.add_argument(
-        "--per-device-process",
-        action="store_true",
-        help="Override deployment-config single_process=false",
-    )
     parser.add_argument("--host", type=str, default=None)
     parser.add_argument("--port", type=int, default=None)
 
     args = parser.parse_args()
 
-    if args.single_process and args.per_device_process:
-        raise ValueError("Choose at most one override: --single-process or --per-device-process")
-
-    single_process_override = None
-    if args.single_process:
-        single_process_override = True
-    elif args.per_device_process:
-        single_process_override = False
-
     service, config = build_service_from_deployment_config(
         deployment_config_path=args.deployment_config,
-        single_process_override=single_process_override,
+        single_process_override=args.single_process,
     )
 
     import uvicorn

@@ -32,6 +32,7 @@ def generate_endpoints(
     lock=None,
     base_path: Path | None = None,
 ) -> dict[str, str]:
+    # procedurally tags on endpoints to the provided service based on the device given
     # Build core protocol endpoints only for MVP: describe/read/put.
     base_path = Path(device.alias) if base_path is None else base_path
     structure = device.instance.describe()
@@ -56,6 +57,7 @@ def generate_endpoints(
         return put_handler
 
     def register_nested_get_endpoints(obj: Any, path: Path) -> None:
+        #for any recursive structure
         for component_name in getattr(obj, "component_names", ()):
             child = getattr(obj, component_name, None)
             if child is None:
@@ -75,7 +77,7 @@ def generate_endpoints(
             if getattr(child, "component_names", ()):
                 register_nested_get_endpoints(child, child_path)
 
-    # Future path for full ophyd surface generation:
+    # Future path for full ophyd tree generation:
     #
     # def traverse_components(struct, obj, path: Path):
     #     yield path / "describe", obj.describe, None
