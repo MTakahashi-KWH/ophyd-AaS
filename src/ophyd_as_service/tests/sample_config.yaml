@@ -1,0 +1,6 @@
+devices:
+    Nested:
+        prefix: "XF32ID1{NESTED}"
+        alias: "Matroshka"
+    Fake:
+        prefix: "XF32ID1{NESTED}"

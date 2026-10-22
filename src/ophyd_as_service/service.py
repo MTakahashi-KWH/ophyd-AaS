@@ -1,12 +1,13 @@
 import argparse
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 import yaml
 from fastapi import Depends, FastAPI
 from pydantic import BaseModel
 
-from .api import deploy_device, generate_endpoints
+from .api import deploy_device, generate_catalogue
 from .auth import AuthUnit, auth
 from .devices import LoadedDevice, load_devices
 
@@ -76,7 +77,10 @@ def _register_management_endpoints(
 
 
 def single_process(devices: list[LoadedDevice], service: FastAPI, auth_unit: AuthUnit | None = None, lock=None):
-    endpoint_maps = [generate_endpoints(device, service, auth=auth_unit, lock=lock) for device in devices]
+    endpoint_maps = [generate_catalogue(device, auth=auth_unit, lock=lock,base_path=Path()) for device in devices]
+    for device_catalogue in endpoint_maps:
+        for endpoint, handle in device_catalogue.items():
+            service.add_api_route(endpoint, handle, methods=[handle.verb])
     return endpoint_maps
 
 

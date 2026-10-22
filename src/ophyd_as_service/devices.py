@@ -10,14 +10,13 @@ from pydantic import BaseModel
 
 
 @dataclass
-class DeviceConfig:
-    name: str
+class DeviceConfig:             # the device configuration given to OaaS
     prefix: str
     alias: str | None = None
     read_only: bool = False
 
 @dataclass
-class DeviceDescriptor:
+class DeviceDescriptor:         # the device descriptor given by the library supplying devices
     object: Device | type[Device]
     name: str | None = None
     init_params: dict[str, Any] | None = None
@@ -25,7 +24,7 @@ class DeviceDescriptor:
 
 
 @dataclass
-class LoadedDevice:
+class LoadedDevice:             # a combined runtime description of the device resolving from config and descriptor
     registry_key: str
     prefix: str
     alias: str
@@ -35,7 +34,15 @@ class LoadedDevice:
 
 
 class ConfigFile(BaseModel):
-    devices: list[DeviceConfig]
+    devices: dict[str, DeviceConfig]
+    # @classmethod
+    # def model_validate_mapping(cls, raw: Any) -> "ConfigFile":
+    #     raw = (raw or {}).get("devices", raw or {})
+    #     if isinstance(raw, list):
+    #         raw = {e["name"]: {k: v for k, v in e.items() if k != "name"} for e in raw}
+    #     if not isinstance(raw, dict):
+    #         raise ValueError("Device config file must contain a dictionary of device settings")
+    #     return cls(devices={k: DeviceConfig(**v) if isinstance(v, dict) else v for k, v in raw.items()})
 
 
 def _resolve_device_registry(module: ModuleType) -> dict[str, Any]:
@@ -66,8 +73,8 @@ def _create_device_descriptor(raw_descriptor: Any) -> DeviceDescriptor:
     raise ValueError(f"Unsupported device descriptor type: {type(raw_descriptor)!r}")
 
 
-def _initialize_device(config: DeviceConfig, descriptor: DeviceDescriptor) -> Device:
-    alias = config.alias or descriptor.name or config.name
+def _initialize_device(config: DeviceConfig, descriptor: DeviceDescriptor, registry_key: str | None = None) -> Device:
+    alias = config.alias or descriptor.name or registry_key
     init_params = descriptor.init_params or {}
 
     if isinstance(descriptor.object, Device):
@@ -76,7 +83,7 @@ def _initialize_device(config: DeviceConfig, descriptor: DeviceDescriptor) -> De
     if isinstance(descriptor.object, type) and issubclass(descriptor.object, Device):
         return descriptor.object(config.prefix, name=alias, **init_params)
 
-    raise ValueError(f"Device descriptor object is invalid for {config.name}")
+    raise ValueError(f"Device descriptor object is invalid for {registry_key}")
 
 
 def load_devices(library, config_path):
@@ -88,17 +95,17 @@ def load_devices(library, config_path):
     device_config = ConfigFile.model_validate(raw)
 
     loaded_devices: list[LoadedDevice] = []
-    for d_config in device_config.devices:
-        if d_config.name not in device_registry:
-            raise ValueError(f"Device {d_config.name} not found in deployment library")
+    for registry_key, d_config in device_config.devices.items():
+        if registry_key not in device_registry:
+            raise ValueError(f"Device {registry_key} not found in deployment library")
 
-        descriptor = _create_device_descriptor(device_registry[d_config.name])
-        instance = _initialize_device(d_config, descriptor)
+        descriptor = _create_device_descriptor(device_registry[registry_key])
+        instance = _initialize_device(d_config, descriptor, registry_key)
         loaded_devices.append(
             LoadedDevice(
-                registry_key=d_config.name,
+                registry_key=registry_key,
                 prefix=d_config.prefix,
-                alias=d_config.alias or descriptor.name or d_config.name,
+                alias=d_config.alias or descriptor.name or registry_key,
                 read_only=d_config.read_only,
                 instance=instance,
                 meta_structure=descriptor.meta_structure,

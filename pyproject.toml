@@ -15,6 +15,7 @@ classifiers = [
 description = "REST API Server for Ophyd Objects."
 dependencies = [
     "alembic",
+    "bluesky",
     "bluesky-queueserver",
     "cachetools",
     "fastapi",
