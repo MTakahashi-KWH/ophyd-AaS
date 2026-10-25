@@ -6,7 +6,7 @@ from fastapi import FastAPI
 from ophyd import Device
 
 from .devices import LoadedDevice
-from .handlers import handler, make_get_handler, make_info_handler
+from .handlers import handler, make_get_handler, make_info_handler, make_spec_handler
 
 
 def _normalize_path(pth: Path):
@@ -26,20 +26,26 @@ def generate_catalogue(
     def get_components(obj):
         if isinstance(obj,Device):
             components = getattr(obj, "component_names", ())
-            return (getattr(obj, comp, None) for comp in components)
+            return (getattr(obj, comp) for comp in components)
         elif hasattr(obj,'children'):
-            return components.children()
+            return obj.children() or ()
+        return ()
 
     def register_endpoints_recursive(obj: Any, path: Path, override: bool = False):
-        element_path = path if override else path / obj.name
+        name, obj = obj if isinstance(obj,tuple) else (obj.name, obj)
+        element_path = path if override else path / name
+
         if isinstance(obj, bp.Readable):
             describe_path = _normalize_path(element_path/ "describe")
             calls[describe_path] = make_get_handler(obj.describe)
+            print(f"describing {name}:",type(obj.describe()))
 
             read_path = _normalize_path(element_path/ "read")
             calls[read_path] = make_get_handler(obj.read)
+            print(f"reading {name}", type(obj.read()))
 
         for component in get_components(obj):
+            print(type(obj),"->",type(component),component)
             register_endpoints_recursive(component,element_path)
 
 
@@ -49,6 +55,9 @@ def generate_catalogue(
     info_path = _normalize_path(base_path/"info")
     calls[info_path] = make_info_handler(device)
 
+    spec_path = _normalize_path(base_path/'spec')
+    calls[spec_path] = make_spec_handler(calls)
+
     return calls
 
 def deploy_device(device: LoadedDevice, manager_service: FastAPI, auth=None, lock=None):
@@ -57,6 +66,7 @@ def deploy_device(device: LoadedDevice, manager_service: FastAPI, auth=None, loc
 
     for endpoint, handle in endpoint_catalogue.items():
         device_app.add_api_route(endpoint, handle, methods=[handle.verb])
+
 
     manager_service.mount(_normalize_path(Path(device.alias)), device_app)
     return endpoint_catalogue

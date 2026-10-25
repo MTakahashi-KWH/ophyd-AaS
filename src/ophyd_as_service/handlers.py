@@ -18,7 +18,7 @@ class handler(Protocol):
 
 
 async def _resolve(result):
-    if inspect.iscoroutine(result):
+    if inspect.isawaitable(result):
         result = await result
     return result
 
@@ -39,7 +39,7 @@ def _validate_input_type(value, struct):
 
 def make_get_handler(method):
     async def get_handler():
-        return _resolve(method())
+        return await _resolve(method())
 
     get_handler.verb = HTTPVerb.GET
     return get_handler
@@ -57,7 +57,7 @@ def make_put_handler(device, method, struct: Any, lock=None):
 
         value = payload["value"]
         _validate_input_type(value, struct)
-        return _resolve(method(value))
+        return await _resolve(method(value))
 
     put_handler.verb = HTTPVerb.PUT
     return put_handler
@@ -74,3 +74,9 @@ def make_info_handler(device):
 
     info_handler.verb = HTTPVerb.GET
     return info_handler
+
+def make_spec_handler(callstack):
+    async def spec_handler():
+        return set(callstack.keys())
+    spec_handler.verb = HTTPVerb.GET
+    return spec_handler

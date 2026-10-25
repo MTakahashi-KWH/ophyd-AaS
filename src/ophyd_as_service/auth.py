@@ -10,19 +10,26 @@ from pydantic import BaseModel
 class AuthConfig(BaseModel):
     admin_token: str
 
-
 @dataclass
 class AuthUnit:
     admin_token: str
     require_admin: Callable[..., Any]
 
+async def no_auth() -> None:
+    # FastAPI dependency that allows the request through
+    return None
 
-def auth(config_path):
+def auth(config: AuthConfig | str | None ):
+    if config is None:
+        return AuthUnit(admin_token="Carr-Purcell-Meiboom-Gill",require_admin=no_auth)
+
     # this is very open ended and i have left this so it can be improved with DI/ composition
-    with open(config_path) as file:
-        raw = yaml.safe_load(file) or {}
-
-    auth_config = AuthConfig.model_validate(raw)
+    if isinstance(config,str):
+        with open(config) as file:
+            raw = yaml.safe_load(file) or {}
+        auth_config = AuthConfig.model_validate(raw)
+    else:
+        auth_config = config
 
     async def require_admin(x_admin_token: Annotated[str | None, Header(alias="X-Admin-Token")] = None):
         if x_admin_token != auth_config.admin_token:

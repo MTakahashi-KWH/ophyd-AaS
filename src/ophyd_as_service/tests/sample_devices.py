@@ -6,6 +6,7 @@ from enums.
 
 
 from ophyd import Component, Device, Signal
+from ophyd_async.sim import SimPointDetector
 
 
 class FakeDevice(Device):
@@ -36,5 +37,6 @@ class NestedDevice(Device):
 DEVICES = {
     "Fake": FakeDevice,
     "Child": NestedChild,
-    "Nested": NestedDevice
+    "Nested": NestedDevice,
+    "AsyncSensor": SimPointDetector,
 }

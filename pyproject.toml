@@ -22,6 +22,8 @@ dependencies = [
     "httpx",
     "ldap3",
     "orjson",
+    "ophyd",
+    "ophyd-async",
     "pamela",
     "pydantic >=2, <3",
     "pydantic-settings >=2",

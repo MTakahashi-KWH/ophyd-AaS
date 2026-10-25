@@ -10,6 +10,7 @@ version = "0.0.1"
 [dependencies]
 python = "*"
 pip = "*"
+h5py = "*"
 
 [pypi-dependencies]
 bluesky-queueserver = { git = "https://github.com/bluesky/bluesky-queueserver.git", branch = "main" }

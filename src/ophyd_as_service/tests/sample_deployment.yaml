@@ -1,0 +1,5 @@
+library: 'ophyd_as_service.tests.sample_devices'
+device_config: 'src/ophyd_as_service/tests/sample_config.yaml'
+single_process: True
+host: "localhost"
+port: 1984

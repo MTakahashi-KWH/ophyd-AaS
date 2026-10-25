@@ -3,29 +3,26 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+import uvicorn
 import yaml
 from fastapi import Depends, FastAPI
 from pydantic import BaseModel
 
 from .api import deploy_device, generate_catalogue
-from .auth import AuthUnit, auth
+from .auth import AuthConfig, AuthUnit, auth
 from .devices import LoadedDevice, load_devices
 
 
 class DeploymentConfig(BaseModel):
     library: str
     device_config: str
-    admin_token: str
+    auth: AuthConfig | str | None = None
     single_process: bool| None = True
     host: str = "0.0.0.0"
     port: int = 8000
 
-
-def load_deployment_config(config_path: str) -> DeploymentConfig:
-    with open(config_path) as file:
-        raw = yaml.safe_load(file) or {}
-    return DeploymentConfig.model_validate(raw)
-
+class ConfigurationError(ValueError):
+    ...
 
 @dataclass
 class EndpointLockState:
@@ -77,7 +74,7 @@ def _register_management_endpoints(
 
 
 def single_process(devices: list[LoadedDevice], service: FastAPI, auth_unit: AuthUnit | None = None, lock=None):
-    endpoint_maps = [generate_catalogue(device, auth=auth_unit, lock=lock,base_path=Path()) for device in devices]
+    endpoint_maps = [generate_catalogue(device, auth=auth_unit, lock=lock) for device in devices]
     for device_catalogue in endpoint_maps:
         for endpoint, handle in device_catalogue.items():
             service.add_api_route(endpoint, handle, methods=[handle.verb])
@@ -97,7 +94,7 @@ def per_device_process(
 def build_service(
     library: str,
     device_config_path: str,
-    deployment_config_path: str,
+    auth_config: str| None = None,
     single_process_mode: bool = True,
 ) -> FastAPI:
     # Startup-only registration: devices are loaded once from deployment config.
@@ -105,7 +102,7 @@ def build_service(
     lock = EndpointLockState()
 
     service = FastAPI()
-    auth_unit = auth(deployment_config_path)
+    auth_unit = auth(auth_config)
 
     _register_management_endpoints(service, auth_unit, lock, devices)
     if single_process_mode:
@@ -124,12 +121,14 @@ def build_service_from_deployment_config(
     deployment_config_path: str,
     single_process_override: bool | None = None,
 ) -> tuple[FastAPI, DeploymentConfig]:
-    config = load_deployment_config(deployment_config_path)
+    with open(deployment_config_path) as file:
+        raw = yaml.safe_load(file) or {}
+    config = DeploymentConfig.model_validate(raw)
     single_process_mode = config.single_process if single_process_override is None else single_process_override
     service = build_service(
         library=config.library,
         device_config_path=config.device_config,
-        deployment_config_path=deployment_config_path,
+        auth_config=config.auth,
         single_process_mode=single_process_mode,
     )
     return service, config
@@ -138,27 +137,38 @@ def build_service_from_deployment_config(
 def deploy():
     #this is core function of this framwork with it being the entrance from CLI
     parser = argparse.ArgumentParser()
-    parser.add_argument("--deployment-config", type=str, required=True)
+    parser.add_argument("--deployment-config", type=str, default=None)
     parser.add_argument(
         "--single-process",
-        action="store_true",
-        default=None,
+        type=bool,
+        default=True,
         help="Override deployment-config single_process=true",
     )
     parser.add_argument("--host", type=str, default=None)
     parser.add_argument("--port", type=int, default=None)
+    parser.add_argument("--lib", type=str, default=None)
+    parser.add_argument("--devices", type=str,default=None)
 
     args = parser.parse_args()
+    if config_file := args.deployment_config:
+        service, config = build_service_from_deployment_config(
+            deployment_config_path=config_file,
+            single_process_override=args.single_process,
+        )
+        host = args.host if args.host is not None else config.host
+        port = args.port if args.port is not None else config.port
+    else:
+        if not all(args.lib,args.devices,args.host,args.port):
+            raise ConfigurationError('''Host library, Device Configuration, Host address,
+            and Host port must be defined for a command line deployment''')
+        service = build_service(
+            library=args.lib,
+            device_config_path=args.devices,
+            single_process_mode=args.single_process
+        )
+        host = args.host
+        port = args.port
 
-    service, config = build_service_from_deployment_config(
-        deployment_config_path=args.deployment_config,
-        single_process_override=args.single_process,
-    )
-
-    import uvicorn
-
-    host = args.host if args.host is not None else config.host
-    port = args.port if args.port is not None else config.port
     uvicorn.run(service, host=host, port=port)
 
 

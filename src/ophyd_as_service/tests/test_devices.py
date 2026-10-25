@@ -20,7 +20,7 @@ def test_device_loads():
     devs = load_devices("ophyd_as_service.tests.sample_devices", work_dir)
     devices_by_name = {d.registry_key: d for d in devs}
 
-    assert set(devices_by_name) == {"Nested", "Fake"}
+    assert set(devices_by_name) == {"Nested", "Fake","AsyncSensor"}
     assert devices_by_name["Nested"].alias == "Matroshka"
     assert devices_by_name["Nested"].prefix == "XF32ID1{NESTED}"
     assert devices_by_name["Fake"].prefix == "XF32ID1{NESTED}"

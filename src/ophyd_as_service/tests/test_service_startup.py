@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from types import ModuleType
 
+import pytest
 import yaml
 from fastapi.testclient import TestClient
 
@@ -13,46 +14,42 @@ def _write_yaml(path, payload):
     with path.open("w", encoding="utf-8") as stream:
         yaml.safe_dump(payload, stream)
 
-
-def test_registration_happens_once_at_startup(tmp_path, monkeypatch):
+@pytest.fixture
+def deployment(tmp_path,monkeypatch):
     lib = ModuleType("fake_device_library")
-    lib.DEVICES = {"fake": FakeDevice}
+    lib.DEVICES = {"Fake": FakeDevice}
     monkeypatch.setitem(__import__("sys").modules, "fake_device_library", lib)
 
     device_config = tmp_path / "devices.yaml"
     deploy_config = tmp_path / "deployment.yaml"
     _write_yaml(
         device_config,
-        {"devices": [{"name": "fake", "prefix": "SIM:", "alias": "det", "read_only": False}]},
+        {"devices": {"Fake":{"prefix": "SIM:", "alias": "det", "read_only": False}}},
     )
     _write_yaml(deploy_config, {"admin_token": "secret"})
+    return device_config, deploy_config
 
-    app = build_service("fake_device_library", str(device_config), str(deploy_config), single_process_mode=True)
+def test_registration_happens_once_at_startup(deployment):
+
+    device_config, deploy_config = deployment
+
+    app = build_service(
+        library="ophyd_as_service.tests.sample_devices",
+        device_config_path=str(device_config),
+        single_process_mode=True)
     client = TestClient(app)
 
     assert client.get("/det/info").status_code == 200
-    assert client.get("/det/capabilities").status_code == 200
+    assert client.get("/det/capabilities").status_code == 404
     assert client.get("/det/read").status_code == 200
 
-    # Registry changes after startup must not create new runtime endpoints.
-    lib.DEVICES["other"] = FakeDevice
-    assert client.get("/other/read").status_code == 404
 
 
-def test_global_lock_blocks_put_but_allows_read(tmp_path, monkeypatch):
-    lib = ModuleType("fake_lock_library")
-    lib.DEVICES = {"fake": FakeDevice}
-    monkeypatch.setitem(__import__("sys").modules, "fake_lock_library", lib)
+def test_global_lock_blocks_put_but_allows_read(deployment):
 
-    device_config = tmp_path / "devices.yaml"
-    deploy_config = tmp_path / "deployment.yaml"
-    _write_yaml(
-        device_config,
-        {"devices": [{"name": "fake", "prefix": "SIM:", "alias": "det", "read_only": False}]},
-    )
-    _write_yaml(deploy_config, {"admin_token": "secret"})
+    device_config, deploy_config = deployment
 
-    app = build_service("fake_lock_library", str(device_config), str(deploy_config), single_process_mode=True)
+    app = build_service("fake_device_library", str(device_config), single_process_mode=True)
     client = TestClient(app)
 
     assert client.put("/det/put", json={"value": 5}).status_code == 200

@@ -1,13 +1,17 @@
-
 import importlib
+import logging
 from dataclasses import dataclass
 from types import ModuleType
 from typing import Any
 
 import yaml
 from ophyd import Device
+from ophyd_async.core import Device as AsyncDevice
 from pydantic import BaseModel
 
+logger = logging.getLogger(__name__)
+
+UnifiedDevice = Device | AsyncDevice
 
 @dataclass
 class DeviceConfig:             # the device configuration given to OaaS
@@ -35,14 +39,6 @@ class LoadedDevice:             # a combined runtime description of the device r
 
 class ConfigFile(BaseModel):
     devices: dict[str, DeviceConfig]
-    # @classmethod
-    # def model_validate_mapping(cls, raw: Any) -> "ConfigFile":
-    #     raw = (raw or {}).get("devices", raw or {})
-    #     if isinstance(raw, list):
-    #         raw = {e["name"]: {k: v for k, v in e.items() if k != "name"} for e in raw}
-    #     if not isinstance(raw, dict):
-    #         raise ValueError("Device config file must contain a dictionary of device settings")
-    #     return cls(devices={k: DeviceConfig(**v) if isinstance(v, dict) else v for k, v in raw.items()})
 
 
 def _resolve_device_registry(module: ModuleType) -> dict[str, Any]:
@@ -67,7 +63,7 @@ def _create_device_descriptor(raw_descriptor: Any) -> DeviceDescriptor:
             meta_structure=raw_descriptor.get("meta_structure"),
         )
 
-    if issubclass(raw_descriptor, Device):
+    if issubclass(raw_descriptor, UnifiedDevice):
         return DeviceDescriptor(object=raw_descriptor)
 
     raise ValueError(f"Unsupported device descriptor type: {type(raw_descriptor)!r}")
@@ -77,10 +73,11 @@ def _initialize_device(config: DeviceConfig, descriptor: DeviceDescriptor, regis
     alias = config.alias or descriptor.name or registry_key
     init_params = descriptor.init_params or {}
 
-    if isinstance(descriptor.object, Device):
+    if isinstance(descriptor.object, UnifiedDevice): #for injectable device definition but this needs change
         return descriptor.object
+    # could be a strongly signatured call or dict indexing returns an init device in future
 
-    if isinstance(descriptor.object, type) and issubclass(descriptor.object, Device):
+    if isinstance(descriptor.object, type) and issubclass(descriptor.object, UnifiedDevice):
         return descriptor.object(config.prefix, name=alias, **init_params)
 
     raise ValueError(f"Device descriptor object is invalid for {registry_key}")
@@ -100,6 +97,7 @@ def load_devices(library, config_path):
             raise ValueError(f"Device {registry_key} not found in deployment library")
 
         descriptor = _create_device_descriptor(device_registry[registry_key])
+        logging.info(f"pulled from registry the descriptor: {str(descriptor)}")
         instance = _initialize_device(d_config, descriptor, registry_key)
         loaded_devices.append(
             LoadedDevice(
