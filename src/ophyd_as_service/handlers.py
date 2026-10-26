@@ -13,7 +13,7 @@ class HTTPVerb(StrEnum):
     PATCH = "PATCH"
 
 
-class handler(Protocol):
+class Handler(Protocol):
     verb: HTTPVerb
 
 
@@ -37,21 +37,34 @@ def _validate_input_type(value, struct):
         raise HTTPException(status_code=422, detail="Expected string value")
 
 
+def _describe_struct(obj: Any) -> dict[str, Any] | None:
+    try:
+        describe = obj.describe()
+    except (AttributeError, TypeError):
+        return None
+    if not isinstance(describe, dict):
+        return None
+    for meta in describe.values():
+        if isinstance(meta, dict):
+            return meta
+    return None
+
+
 def make_get_handler(method):
     async def get_handler():
         return await _resolve(method())
 
     get_handler.verb = HTTPVerb.GET
+    get_handler.target = getattr(method, "__self__", None)
     return get_handler
 
 
 def make_put_handler(device, method, struct: Any, lock=None):
     async def put_handler(payload: dict[str, Any] = Body(...)):
-        if device.read_only:
+        if getattr(device, "read_only", False):
             raise HTTPException(status_code=403, detail="Device is read-only")
         if lock is not None and lock.is_active():
             raise HTTPException(status_code=423, detail="Global mutation lock is enabled")
-
         if "value" not in payload:
             raise HTTPException(status_code=422, detail="PUT payload must include a 'value' key")
 
@@ -60,6 +73,7 @@ def make_put_handler(device, method, struct: Any, lock=None):
         return await _resolve(method(value))
 
     put_handler.verb = HTTPVerb.PUT
+    put_handler.target = getattr(method, "__self__", None)
     return put_handler
 
 

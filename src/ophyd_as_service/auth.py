@@ -19,12 +19,11 @@ async def no_auth() -> None:
     # FastAPI dependency that allows the request through
     return None
 
-def auth(config: AuthConfig | str | None ):
+def auth(config: AuthConfig | str | None):
     if config is None:
-        return AuthUnit(admin_token="Carr-Purcell-Meiboom-Gill",require_admin=no_auth)
+        return AuthUnit(admin_token="Carr-Purcell-Meiboom-Gill", require_admin=no_auth)
 
-    # this is very open ended and i have left this so it can be improved with DI/ composition
-    if isinstance(config,str):
+    if isinstance(config, str):
         with open(config) as file:
             raw = yaml.safe_load(file) or {}
         auth_config = AuthConfig.model_validate(raw)

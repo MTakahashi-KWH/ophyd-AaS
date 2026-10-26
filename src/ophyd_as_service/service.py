@@ -1,6 +1,5 @@
 import argparse
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Any
 
 import uvicorn
@@ -11,15 +10,26 @@ from pydantic import BaseModel
 from .api import deploy_device, generate_catalogue
 from .auth import AuthConfig, AuthUnit, auth
 from .devices import LoadedDevice, load_devices
+from .handlers import Handler
+from .websocket_api import register_finch_support, register_standard_ws_support
 
 
 class DeploymentConfig(BaseModel):
     library: str
     device_config: str
     auth: AuthConfig | str | None = None
-    single_process: bool| None = True
+    admin_token: str | None = None
+    single_process: bool | None = True
     host: str = "0.0.0.0"
     port: int = 8000
+    finch_enabled: bool = False
+
+    def resolve_auth(self) -> AuthConfig | str | None:
+        if self.auth is not None:
+            return self.auth
+        if self.admin_token is not None:
+            return AuthConfig(admin_token=self.admin_token)
+        return None
 
 class ConfigurationError(ValueError):
     ...
@@ -73,12 +83,19 @@ def _register_management_endpoints(
         }
 
 
-def single_process(devices: list[LoadedDevice], service: FastAPI, auth_unit: AuthUnit | None = None, lock=None):
-    endpoint_maps = [generate_catalogue(device, auth=auth_unit, lock=lock) for device in devices]
-    for device_catalogue in endpoint_maps:
+def single_process(
+    devices: list[LoadedDevice],
+    service: FastAPI,
+    auth_unit: AuthUnit | None = None,
+    lock=None,
+) -> dict[str, Any]:
+    combined_catalogue: dict[str, Any] = {}
+    for device in devices:
+        device_catalogue = generate_catalogue(device, lock=lock)
+        combined_catalogue.update(device_catalogue)
         for endpoint, handle in device_catalogue.items():
             service.add_api_route(endpoint, handle, methods=[handle.verb])
-    return endpoint_maps
+    return combined_catalogue
 
 
 def per_device_process(
@@ -94,8 +111,9 @@ def per_device_process(
 def build_service(
     library: str,
     device_config_path: str,
-    auth_config: str| None = None,
+    auth_config: str | AuthConfig | None = None,
     single_process_mode: bool = True,
+    finch_enabled: bool = False,
 ) -> FastAPI:
     # Startup-only registration: devices are loaded once from deployment config.
     devices = load_devices(library, device_config_path)
@@ -105,14 +123,32 @@ def build_service(
     auth_unit = auth(auth_config)
 
     _register_management_endpoints(service, auth_unit, lock, devices)
+
+    catalogue: dict[str, Handler] | None = None
     if single_process_mode:
-        single_process(devices, service, auth_unit=auth_unit, lock=lock)
+        catalogue = single_process(devices, service, auth_unit=auth_unit, lock=lock)
     else:
         per_device_process(devices, service, auth_unit=auth_unit, lock=lock)
 
+    register_standard_ws_support(service, devices, catalogue=catalogue, lock=lock)
+
+    if finch_enabled:
+        register_finch_support(
+            service,
+            devices,
+            catalogue=catalogue,
+            lock=lock,
+            mount_subapp=not single_process_mode,
+        )
+
     @service.get("/health")
     def health() -> dict[str, Any]:
-        return {"ok": True, "devices": len(devices), "single_process": single_process_mode}
+        return {
+            "ok": True,
+            "devices": len(devices),
+            "single_process": single_process_mode,
+            "finch_enabled": finch_enabled,
+        }
 
     return service
 
@@ -128,8 +164,9 @@ def build_service_from_deployment_config(
     service = build_service(
         library=config.library,
         device_config_path=config.device_config,
-        auth_config=config.auth,
+        auth_config=config.resolve_auth(),
         single_process_mode=single_process_mode,
+        finch_enabled=config.finch_enabled,
     )
     return service, config
 
